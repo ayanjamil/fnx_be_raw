@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "keywords": [],
   "author": "",
@@ -14,10 +15,15 @@
     "@vercel/postgres": "^0.10.0",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.10.0",
+    "csv-parse": "^5.6.0",
     "dotenv": "^17.0.0",
     "drizzle-orm": "^0.44.2",
     "express": "^5.1.0",
+    "multer": "^2.0.1",
     "pg": "^8.16.3",
     "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }

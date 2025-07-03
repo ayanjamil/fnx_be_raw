@@ -5,6 +5,51 @@ const db = require("../db"); // ✅ import without destructuring
 const { studentVideos } = require("../schema");
 const { eq } = require("drizzle-orm");
 
+const multer = require("multer");
+const csv = require("csv-parse");
+const upload = multer({ dest: "uploads/" }); // temp upload dir
+const fs = require("fs");
+const crypto = require("crypto");
+
+// 📥 POST /api/student/upload — Upload CSV of student names
+router.post("/upload", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No CSV file uploaded" });
+    }
+
+    const filePath = req.file.path;
+    const parser = fs
+      .createReadStream(filePath)
+      .pipe(csv.parse({ columns: true, skip_empty_lines: true }));
+
+    let insertedCount = 0;
+
+    for await (const record of parser) {
+      const name =
+        record["Registered Name Hindi"] ||
+        record["Name"] ||
+        record[Object.keys(record)[1]];
+      if (!name) continue;
+
+      const student_id = crypto.randomUUID();
+
+      await db.insert(studentVideos).values({
+        student_id,
+        name,
+        status: "scripting",
+      });
+      insertedCount++;
+    }
+
+    fs.unlinkSync(filePath); // cleanup temp file
+    res.json({ success: true, message: `Inserted ${insertedCount} students.` });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to process CSV upload" });
+  }
+});
+
 // 📝 POST /api/student — Create student
 router.post("/", async (req, res) => {
   const { student_id, name, branch, location } = req.body;

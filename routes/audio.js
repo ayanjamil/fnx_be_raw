@@ -3,12 +3,12 @@ const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
 const axios = require("axios");
-const { db } = require("../db");
+const { eq, isNull, isNotNull, and } = require("drizzle-orm");
+const db = require("../db");
+const { studentVideos } = require("../schema");
 const AWS = require("aws-sdk");
 
 const router = express.Router();
-
-// const router = express.Router();
 
 // Setup R2 client
 const s3 = new AWS.S3({
@@ -19,18 +19,28 @@ const s3 = new AWS.S3({
   region: "auto",
 });
 
+// 🚀 POST /api/audio/generate — Start audio generation
 router.post("/generate", async (req, res) => {
   try {
-    const { count = 20 } = req.query;
+    const count = parseInt(req.query.count) || 20;
 
-    const { rows: students } = await db.query(
-      "SELECT * FROM studentVideos WHERE generated_audio_link IS NULL AND generated_script IS NOT NULL LIMIT $1",
-      [count]
-    );
+    // ✅ Drizzle select
+    const students = await db
+      .select()
+      .from(studentVideos)
+      .where(
+        and(
+          isNull(studentVideos.generated_audio_link),
+          isNotNull(studentVideos.generated_script)
+        )
+      )
+      .limit(count);
 
-    if (students.length === 0)
+    if (students.length === 0) {
       return res.json({ message: "No students found needing audio." });
+    }
 
+    // 🚀 Run in background
     (async () => {
       for (const student of students) {
         try {
@@ -40,9 +50,9 @@ router.post("/generate", async (req, res) => {
           const audioFilename = `${studentName}_${timestamp}.mp3`;
           const tempAudioPath = path.join(os.tmpdir(), audioFilename);
 
-          // ElevenLabs request
+          // 🗣️ ElevenLabs request
           const response = await axios.post(
-            `https://api.elevenlabs.io/v1/text-to-speech/Xb7hH8MSUJpSbSDYk0k2`,
+            "https://api.elevenlabs.io/v1/text-to-speech/Xb7hH8MSUJpSbSDYk0k2",
             {
               text: script,
               model_id: "eleven_multilingual_v2",
@@ -56,7 +66,7 @@ router.post("/generate", async (req, res) => {
 
           await fs.writeFile(tempAudioPath, response.data);
 
-          // Upload to R2
+          // ☁️ Upload to R2
           const objectKey = `audio/${audioFilename}`;
           await s3
             .putObject({
@@ -67,13 +77,13 @@ router.post("/generate", async (req, res) => {
             })
             .promise();
 
-          const uploadedUrl = `${process.env.CUSTOM_DOMAIN}${objectKey}`;
+          const uploadedUrl = `${process.env.R2_CUSTOM_DOMAIN}${objectKey}`;
 
-          // Update DB
-          await db.query(
-            "UPDATE studentVideos SET generated_audio_link=$1 WHERE student_id=$2",
-            [uploadedUrl, student.student_id]
-          );
+          // 📝 Update DB with generated_audio_link
+          await db
+            .update(studentVideos)
+            .set({ generated_audio_link: uploadedUrl })
+            .where(eq(studentVideos.student_id, student.student_id));
 
           await fs.unlink(tempAudioPath);
 
@@ -87,6 +97,7 @@ router.post("/generate", async (req, res) => {
       }
     })();
 
+    // ⏳ Immediately respond
     res.json({
       message: `Started audio generation for ${students.length} students.`,
     });
